@@ -17,12 +17,7 @@ A simple Python + SQLite3 ORM-based CLI app to manage authors, articles, and mag
 - `pytest` for testing
 
 ## Setup Instructions
-
-### 1. Clone the Repository
-
 ```bash
-
-
 git clone https://github.com/Kabogo-Maverick/magazine.git
 cd magazine
 python3 -m venv venv
