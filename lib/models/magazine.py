@@ -1,5 +1,5 @@
 from search_db_conn import get_connection
-
+import sqlite3
 class Magazine:
     def __init__(self, id=None, name=None, category=None):
         self.id = id
@@ -124,15 +124,19 @@ class Magazine:
         conn.close()
         return [cls(id=row["id"], name=row["name"], category=row["category"]) for row in rows]
 
+
+
     @classmethod
     def article_counts(cls):
         conn = get_connection()
+        conn.row_factory = sqlite3.Row  # ✅ make rows dict-like
         cursor = conn.cursor()
-        rows = cursor.execute("""
-            SELECT m.name, COUNT(a.id) FROM magazines m
+        cursor.execute("""
+            SELECT m.name, COUNT(a.id) as article_count
+            FROM magazines m
             LEFT JOIN articles a ON m.id = a.magazine_id
             GROUP BY m.id
         """)
         rows = cursor.fetchall()
         conn.close()
-        return rows
+        return rows  # ✅ each row acts like a dictionary: row['name'], row['article_count']

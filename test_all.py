@@ -10,6 +10,7 @@ import os
 from faker import Faker
 from random import random
 
+# Ensure get_connection is defined
 if not callable(globals().get("get_connection")):
     from search_db_conn import get_connection
 
@@ -30,7 +31,6 @@ def insert_values(tbl, vals={}):
 
     cols = ",".join(vals.keys())
     q = f"INSERT INTO {tbl} ({cols}) VALUES ({'?,'*(len(vals.keys())-1)}?)"
-    print(q)
     cursor.execute(q, (*vals.values(), ))
     conn.commit()
     conn.close()
@@ -38,7 +38,7 @@ def insert_values(tbl, vals={}):
 def init_schema():
     conn = get_connection()
     conn.row_factory = sqlite3.Row
-    
+
     for dirpath, dirnames, filenames in os.walk("."):
         for filename in filenames:
             if filename == "schema.sql":
@@ -67,28 +67,18 @@ def setup_before_all_tests():
     insert_values("articles", {"title":"Future of Health", "author_id":1, "magazine_id":2})
     insert_values("articles", {"title":"Cybersecurity Tips", "author_id":2, "magazine_id":1})
 
-def clean_up(tbl):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM ?", (tbl,))
-    conn.commit()
-    conn.close()
-
 def find_by_name(cls, tbl, name):
     conn = get_connection()
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     row = cursor.execute(f"SELECT * FROM {tbl} WHERE name = ?", (name,))
     record = row.fetchone()
-    return cls(**{ desc[0]: record[desc[0]] if type(record) != tuple else record[i] \
-                  for i, desc in enumerate(row.description) })
+    return cls(**record)
 
 def count(tbl, where):
     conn = get_connection()
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    params = []
-    for k, v in where.items():
-        params.append(k)
-        params.append(v)
     q = "SELECT COUNT(*) AS count FROM %s WHERE %s = ?" % (tbl, *where.keys(),)
     row = cursor.execute(q, (*where.values(),)).fetchone()
     conn.close()
@@ -96,36 +86,31 @@ def count(tbl, where):
 
 def get_row(tbl):
     conn = get_connection()
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     return cursor.execute(f"SELECT * FROM {tbl}")
 
 def get_value(row, obj, attr):
     if hasattr(obj, attr):
         return getattr(obj, attr)
-    
-    if type(obj) == dict and attr in obj:
-        item = { desc[0]: obj.get(desc[0]) for desc in row.description }
+    if isinstance(obj, dict) and attr in obj:
+        return obj.get(attr)
+    try:
+        return obj[attr]
+    except:
+        item = { desc[0]: obj[i] for i, desc in enumerate(row.description) }
         return item.get(attr)
 
-    if not hasattr(obj, attr):
-        item = { desc[0]: obj[desc[0]] for desc in row.description }
-        return item.get(attr)
-    
 def get_one(records):
-    if type(records) == list:
-        return records[0]
-    else: 
-        return records
+    return records[0] if isinstance(records, list) else records
+
+# Author Tests
 
 def test_author_save_and_find():
     author = Author(name="Charlie")
     author.save()
-    found = None
-    if callable(globals().get("Author.find_by_name")):
-        found = Author.find_by_name("Charlie")
-    else:
-        found = find_by_name(Author, 'authors', "Charlie")
-    assert not None and found.name == "Charlie"
+    found = Author.find_by_name("Charlie") if callable(globals().get("Author.find_by_name")) else find_by_name(Author, 'authors', "Charlie")
+    assert found.name == "Charlie"
 
 def test_author_articles():
     author = get_one(Author.find_by_name("Alice"))
@@ -135,11 +120,7 @@ def test_author_articles():
     assert any(get_value(row, a, "title") == "AI Revolution" for a in articles)
 
 def test_author_magazines():
-    if callable(globals().get("Author.find_by_name")):
-        author = get_one(Author.find_by_name("Alice"))
-    else:
-        author = find_by_name(Author, 'authors', "Alice")
-    
+    author = get_one(Author.find_by_name("Alice")) if callable(globals().get("Author.find_by_name")) else find_by_name(Author, 'authors', "Alice")
     mags = author.magazines() if callable(author.magazines) else author.magazines
     row = get_row("magazines")
     names = [get_value(row, m, 'name') for m in mags]
@@ -155,7 +136,7 @@ def test_author_add_article():
     row = get_row("articles")
     assert get_value(row, articles[0],'title') == "SpaceX Launch"
 
-### Magazine Tests ###
+# Magazine Tests
 
 def test_magazine_find_by_category():
     mag = get_one(Magazine.find_by_category("Technology"))
@@ -163,57 +144,42 @@ def test_magazine_find_by_category():
     assert get_value(row, mag, "name") == "Tech Times"
 
 def test_magazine_contributors():
-    if callable(globals().get("Magazine.find_by_name")):
-        mag = get_one(Magazine.find_by_name("Tech Times"))
-    else:
-        mag = find_by_name(Magazine, 'magazines', "Tech Times")
+    mag = get_one(Magazine.find_by_name("Tech Times")) if callable(globals().get("Magazine.find_by_name")) else find_by_name(Magazine, 'magazines', "Tech Times")
     authors = mag.contributors() if callable(mag.contributors) else mag.contributors
     row = get_row("authors")
     names = [get_value(row, a, 'name') for a in authors]
     assert set(names) == {"Alice", "Bob"}
 
 def test_magazine_article_titles():
-    if callable(globals().get("Magazine.find_by_name")):
-        mag = get_one(Magazine.find_by_name("Tech Times"))
-    else:
-        mag = find_by_name(Magazine, 'magazines', "Tech Times")
+    mag = get_one(Magazine.find_by_name("Tech Times")) if callable(globals().get("Magazine.find_by_name")) else find_by_name(Magazine, 'magazines', "Tech Times")
     titles = mag.article_titles() if callable(mag.article_titles) else mag.article_titles
     assert set(titles) == {"AI Revolution", "Cybersecurity Tips"}
 
 def test_magazine_contributing_authors():
-    if callable(globals().get("Magazine.find_by_name")):
-        mag = get_one(Magazine.find_by_name("Tech Times"))
-    else:
-        mag = find_by_name(Magazine, 'magazines', "Tech Times")
+    mag = get_one(Magazine.find_by_name("Tech Times")) if callable(globals().get("Magazine.find_by_name")) else find_by_name(Magazine, 'magazines', "Tech Times")
     authors = mag.contributing_authors() if callable(mag.contributing_authors) else mag.contributing_authors
     assert isinstance(authors, list)
 
-### Article Tests ###
+# Article Tests
 
 def test_article_find_by_title():
     article = get_one(Article.find_by_title("AI Revolution"))
     row = get_row("articles")
     assert get_value(row, article, "title") == "AI Revolution"
 
-### SQL Query Tests ###
+# SQL Query Tests
 
 def test_magazines_with_multiple_authors():
     mags = Magazine.with_multiple_authors()
     row = get_row("magazines")
     assert any(get_value(row, m, 'name') == "Tech Times" for m in mags)
 
-# def test_article_count_per_magazine():
-#     counts = Magazine.article_counts()
-#     row = get_row("magazines")
-#     assert any(get_value(row, c, 'name') == "Tech Times" for i, c in enumerate(counts))
+def test_article_count_per_magazine():
+    counts = Magazine.article_counts()
+    row = get_row("magazines")
+    assert any(get_value(row, c, 'name') == "Tech Times" for i, c in enumerate(counts))
 
 def test_top_author_by_articles():
     top = Author.top_author()
-    row = get_row("articles")
+    row = get_row("authors")
     assert get_value(row, top, 'name') == "Alice"
-
-def test_article_count_per_magazine():
-    counts = Magazine.article_counts()
-    assert any(c["name"] == "Tech Times" for c in counts)
-
-    
